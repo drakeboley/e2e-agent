@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "e2ebot-testing": {
+      "command": "node",
+      "args": ["/home/drake/e2ebot/mcp-server.js"],
+      "env": {}
+    }
+  }
+}
