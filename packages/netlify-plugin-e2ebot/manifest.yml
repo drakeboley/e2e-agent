@@ -1,0 +1,26 @@
+name: netlify-plugin-e2ebot
+description: Autonomous end-to-end web testing agent and deploy preview inspector powered by Puppeteer and Cypress.
+inputs:
+  - name: apiUrl
+    description: Endpoint URL of the e2ebot service
+    default: "http://localhost:3000"
+    required: false
+  - name: apiKey
+    description: Optional e2ebot API key for authenticated cloud / agency instances
+    required: false
+  - name: runSmoke
+    description: Run real-time Puppeteer smoke test on the Netlify deploy preview URL
+    default: true
+    required: false
+  - name: runCypress
+    description: Run Cypress regression test specs against the Netlify deploy preview URL
+    default: true
+    required: false
+  - name: spec
+    description: Cypress spec name to execute (e.g. 'sample')
+    default: "sample"
+    required: false
+  - name: failOnError
+    description: Fail the Netlify build/deploy step if tests fail
+    default: false
+    required: false

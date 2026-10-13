@@ -1,0 +1,92 @@
+{
+  "id": "e2ebot-testing",
+  "name": "e2ebot Real-Time Testing Agent",
+  "version": "1.2.0",
+  "description": "Autonomous real-time E2E testing agent and deploy preview inspector for Netlify projects. Powered by Puppeteer, Cypress, and AI Agent workflows.",
+  "category": "Testing & QA",
+  "partner": {
+    "name": "Enterprise Picard",
+    "tier": "Technology Partner",
+    "supportUrl": "https://github.com/drake/e2ebot/issues",
+    "documentationUrl": "https://github.com/drake/e2ebot#readme"
+  },
+  "integration": {
+    "type": "extension",
+    "webhooks": [
+      {
+        "event": "deploy-succeeded",
+        "endpoint": "/api/webhooks/netlify",
+        "description": "Automatically inspect and test new deploy previews"
+      }
+    ],
+    "scopes": [
+      "read:sites",
+      "read:deploys"
+    ],
+    "ui": {
+      "deploySummaryWidget": true,
+      "widgetUrl": "/dashboard/preview-widget"
+    }
+  },
+  "buildPlugin": {
+    "package": "netlify-plugin-e2ebot",
+    "npm": "https://www.npmjs.com/package/netlify-plugin-e2ebot"
+  },
+  "pricing": {
+    "model": "freemium_tiered",
+    "currency": "USD",
+    "billing": "marketplace_integrated",
+    "tiers": [
+      {
+        "id": "starter",
+        "name": "Starter (Community)",
+        "priceMonthly": 0,
+        "features": [
+          "100 deploy preview runs / mo",
+          "50 browser execution minutes",
+          "Automated Puppeteer smoke test",
+          "Standard Cypress regression runs",
+          "Community support"
+        ]
+      },
+      {
+        "id": "pro",
+        "name": "Pro (Growth)",
+        "priceMonthly": 49,
+        "features": [
+          "Unlimited deploy previews",
+          "1,200 browser execution minutes / mo",
+          "3 parallel runners",
+          "Real-time AI exploratory smoke testing",
+          "Slack / Discord / Netlify notifications",
+          "Test failure screenshot artifacts",
+          "Standard email support"
+        ]
+      },
+      {
+        "id": "agency",
+        "name": "Agency (Multi-Site)",
+        "priceMonthly": 199,
+        "features": [
+          "Up to 25 Netlify sites",
+          "5,000 browser execution minutes / mo",
+          "10 parallel runners",
+          "Visual regression snapshots against production",
+          "White-label PDF/HTML client reports",
+          "Priority execution queue"
+        ]
+      },
+      {
+        "id": "enterprise",
+        "name": "Enterprise",
+        "priceMonthly": "Custom (from $899)",
+        "features": [
+          "Unlimited sites & custom runner concurrency",
+          "VPC peering / private dedicated runners",
+          "SAML / SSO & audit logs",
+          "99.9% uptime SLA & dedicated account engineer"
+        ]
+      }
+    ]
+  }
+}

@@ -75,13 +75,30 @@ server.tool(
     }
 );
 
+// Tool: puppeteer_smokeTest
+server.tool(
+    "puppeteer_smokeTest",
+    "Run an automated smoke test on a URL, capturing console errors, failed network requests, and status",
+    { url: z.string(), captureScreenshot: z.boolean().optional() },
+    async ({ url, captureScreenshot }) => {
+        const result = await puppeteerService.executeAction({ 
+            type: "smokeTest", 
+            url, 
+            captureScreenshot: !!captureScreenshot 
+        });
+        return {
+            content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+        };
+    }
+);
+
 // Tool: cypress_run
 server.tool(
     "cypress_run",
-    "Run a Cypress spec file (e.g., 'sample' runs cypress/e2e/sample.cy.js)",
-    { spec: z.string().optional() },
-    async ({ spec }) => {
-        const result = await cypressService.runSpec(spec);
+    "Run a Cypress spec file (e.g., 'sample' runs cypress/e2e/sample.cy.js) against an optional baseUrl (e.g. Netlify Deploy Preview URL)",
+    { spec: z.string().optional(), baseUrl: z.string().optional() },
+    async ({ spec, baseUrl }) => {
+        const result = await cypressService.runSpec(spec, { baseUrl });
         return {
             content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
         };

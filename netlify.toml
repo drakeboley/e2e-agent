@@ -1,0 +1,16 @@
+# Example netlify.toml for projects integrating e2ebot testing
+
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+# Netlify Build Plugin for e2ebot autonomous testing
+[[plugins]]
+  package = "./packages/netlify-plugin-e2ebot"
+
+  [plugins.inputs]
+    apiUrl = "http://localhost:3000"
+    runSmoke = true
+    runCypress = true
+    spec = "sample"
+    failOnError = false
