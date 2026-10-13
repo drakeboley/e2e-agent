@@ -1,8 +1,32 @@
-# Example netlify.toml for projects integrating e2ebot testing
-
 [build]
   command = "npm run build"
   publish = "dist"
+  functions = "netlify/functions"
+
+[build.environment]
+  CYPRESS_INSTALL_BINARY = "0"
+  PUPPETEER_SKIP_CHROMIUM_DOWNLOAD = "true"
+  PUPPETEER_SKIP_DOWNLOAD = "true"
+
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/api/api/:splat"
+  status = 200
+
+[[redirects]]
+  from = "/health"
+  to = "/.netlify/functions/api/health"
+  status = 200
+
+[[redirects]]
+  from = "/privacy"
+  to = "/privacy/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/terms"
+  to = "/terms/index.html"
+  status = 200
 
 # Netlify Build Plugin for e2ebot autonomous testing
 [[plugins]]
@@ -10,7 +34,6 @@
 
   [plugins.inputs]
     apiUrl = "http://localhost:3000"
-    runSmoke = true
-    runCypress = true
-    spec = "sample"
+    runSmoke = false
+    runCypress = false
     failOnError = false

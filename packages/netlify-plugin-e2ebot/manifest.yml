@@ -1,5 +1,4 @@
 name: netlify-plugin-e2ebot
-description: Autonomous end-to-end web testing agent and deploy preview inspector powered by Puppeteer and Cypress.
 inputs:
   - name: apiUrl
     description: Endpoint URL of the e2ebot service
