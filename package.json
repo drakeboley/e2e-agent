@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node server.js",
     "build": "node scripts/build.js",
-    "test": "node scripts/build.js"
+    "test": "node --test test/**/*.test.js"
   },
   "keywords": [],
   "author": "",
@@ -17,6 +17,7 @@
     "cors": "^2.8.6",
     "cypress": "^16.1.1",
     "express": "^5.2.1",
+    "ipaddr.js": "^1.9.1",
     "puppeteer": "^25.13.0",
     "serverless-http": "^4.0.0",
     "ws": "^8.22.0",

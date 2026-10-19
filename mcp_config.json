@@ -2,7 +2,7 @@
   "mcpServers": {
     "e2ebot-testing": {
       "command": "node",
-      "args": ["/home/drake/e2ebot/mcp-server.js"],
+      "args": ["/home/drake/enterprise-picard/ventures/e2ebot/projects/e2ebot/mcp-server.js"],
       "env": {}
     }
   }

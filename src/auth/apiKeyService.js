@@ -96,14 +96,17 @@ class ApiKeyService {
     constructor() {
         this.keysByHash = new Map();
         this.requestTimestamps = new Map(); // keyId -> number[] for 60s sliding window
+        this.masterAdminKeyOverride = null;
 
-        // Mint a default Software Lab development key for out-of-the-box evaluation
-        this.createKey({
-            tenantId: 'tenant:software_lab',
-            name: 'Default Lab Dev Runner Key',
-            tier: SubscriptionTier.PRO,
-            secretOverride: 'e2e_live_dev_lab_key_1234567890abcdef'
-        });
+        // SEC-03: Only seed default development lab key in non-production environments when not explicitly disabled
+        if (process.env.NODE_ENV !== 'production' && process.env.SEED_DEFAULT_DEV_KEY !== 'false') {
+            this.createKey({
+                tenantId: 'tenant:software_lab',
+                name: 'Default Lab Dev Runner Key',
+                tier: SubscriptionTier.PRO,
+                secretOverride: process.env.E2EBOT_DEV_KEY || 'e2e_live_dev_lab_key_1234567890abcdef'
+            });
+        }
 
         // Preserve backward compatibility with legacy E2EBOT_API_KEY if configured in environment
         if (process.env.E2EBOT_API_KEY) {
@@ -114,6 +117,49 @@ class ApiKeyService {
                 secretOverride: process.env.E2EBOT_API_KEY
             });
         }
+    }
+
+    /**
+     * Set a master admin key override (used for programmatic testing or runtime injection).
+     */
+    setMasterAdminKey(key) {
+        this.masterAdminKeyOverride = key;
+    }
+
+    /**
+     * Check whether a given secret matches the master administrative credentials.
+     * Checks environment variables (E2EBOT_MASTER_ADMIN_KEY, E2EBOT_ADMIN_KEY, MASTER_ADMIN_KEY, ADMIN_KEY),
+     * any programmatic override, or in non-production a dev fallback key.
+     * Uses constant-time buffer comparison to prevent timing attacks.
+     */
+    isMasterAdmin(rawSecret) {
+        if (!rawSecret || typeof rawSecret !== 'string') return false;
+        const token = rawSecret.trim();
+
+        const envMaster = process.env.E2EBOT_MASTER_ADMIN_KEY ||
+                          process.env.E2EBOT_ADMIN_KEY ||
+                          process.env.MASTER_ADMIN_KEY ||
+                          process.env.ADMIN_KEY ||
+                          this.masterAdminKeyOverride ||
+                          (process.env.NODE_ENV !== 'production' ? 'e2e_master_admin_dev_secret_key' : null);
+
+        if (envMaster) {
+            const tokenHash = sha256(token);
+            const masterHash = sha256(envMaster.trim());
+            const tokenBuf = Buffer.from(tokenHash, 'hex');
+            const masterBuf = Buffer.from(masterHash, 'hex');
+            if (tokenBuf.length === masterBuf.length && crypto.timingSafeEqual(tokenBuf, masterBuf)) {
+                return true;
+            }
+        }
+
+        // Also check if token matches an active key registered with admin privileges
+        const validation = this.validateKey(token);
+        if (validation.valid && validation.apiKey && (validation.apiKey.isAdmin === true || validation.apiKey.role === 'ADMIN')) {
+            return true;
+        }
+
+        return false;
     }
 
     /**
@@ -138,6 +184,8 @@ class ApiKeyService {
             status: 'ACTIVE',
             stripeCustomerId: params.stripeCustomerId || null,
             stripeSubscriptionId: params.stripeSubscriptionId || null,
+            isAdmin: params.isAdmin === true,
+            role: params.role || (params.isAdmin ? 'ADMIN' : 'USER'),
             requestsUsed: 0,
             deployRunsUsed: 0,
             browserMinutesUsed: 0,
@@ -154,6 +202,7 @@ class ApiKeyService {
     /**
      * Validate a raw Bearer/API key using constant-time SHA-256 comparison,
      * enforce sliding-window rate limits, and verify monthly execution quotas.
+     * PERF-02: Optimized to O(1) hash lookup with constant-time buffer verification.
      */
     validateKey(rawSecret, options = { checkExecutionQuota: false }) {
         if (!rawSecret || typeof rawSecret !== 'string') {
@@ -161,20 +210,18 @@ class ApiKeyService {
         }
 
         const computedHash = sha256(rawSecret.trim());
-        const computedBuf = Buffer.from(computedHash, 'hex');
-
-        let matchedKey = null;
-        for (const [storedHash, candidate] of this.keysByHash.entries()) {
-            const storedBuf = Buffer.from(storedHash, 'hex');
-            if (storedBuf.length === computedBuf.length && crypto.timingSafeEqual(computedBuf, storedBuf)) {
-                matchedKey = candidate;
-                break;
-            }
-        }
+        const matchedKey = this.keysByHash.get(computedHash);
 
         if (!matchedKey) {
             return { valid: false, statusCode: 401, error: 'Invalid API Key' };
         }
+
+        const computedBuf = Buffer.from(computedHash, 'hex');
+        const storedBuf = Buffer.from(matchedKey.keyHash, 'hex');
+        if (storedBuf.length !== computedBuf.length || !crypto.timingSafeEqual(computedBuf, storedBuf)) {
+            return { valid: false, statusCode: 401, error: 'Invalid API Key' };
+        }
+
         if (!matchedKey.active || matchedKey.status !== 'ACTIVE') {
             return {
                 valid: false,
@@ -286,6 +333,22 @@ class ApiKeyService {
             }
         }
         return updatedKeys;
+    }
+
+    /**
+     * Update the subscription tier for a specific API key or tenant.
+     * Administrative method to upgrade or downgrade quotas.
+     */
+    updateKeyTier({ keyId, tenantId, tier }) {
+        if (!tier) return null;
+        const normalized = normalizeTier(tier);
+        for (const key of this.keysByHash.values()) {
+            if ((keyId && key.id === keyId) || (tenantId && key.tenantId === tenantId)) {
+                key.tier = normalized;
+                return key;
+            }
+        }
+        return null;
     }
 
     revokeKey(keyId, tenantId) {

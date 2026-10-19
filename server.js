@@ -57,6 +57,10 @@ app.use(
 app.use(cors());
 
 function extractToken(req) {
+    const adminKey = req.headers['x-admin-key'] || req.headers['x-e2ebot-admin-key'];
+    if (adminKey && typeof adminKey === 'string') {
+        return adminKey.trim();
+    }
     const headerKey = req.headers['x-e2ebot-api-key'] || req.headers['x-api-key'];
     if (headerKey && typeof headerKey === 'string') {
         return headerKey.trim();
@@ -192,16 +196,61 @@ app.get('/api/tiers', (_req, res) => {
     });
 });
 
+// SEC-01: Secure POST /api/keys — Require master admin authentication before issuing new keys or upgrading tiers
 app.post('/api/keys', (req, res) => {
-    const { name, tier, tenantId } = req.body || {};
+    const token = extractToken(req);
+    if (!token) {
+        return res.status(401).json({
+            success: false,
+            error: 'Unauthorized: Master admin authentication required to issue API keys or upgrade tiers',
+            hint: 'Provide master admin key via X-Admin-Key, Authorization: Bearer <master-admin-key>, or X-E2EBot-API-Key header'
+        });
+    }
+
+    if (!defaultApiKeyService.isMasterAdmin(token)) {
+        return res.status(403).json({
+            success: false,
+            error: 'Forbidden: Master admin credentials required to issue API keys or upgrade tiers'
+        });
+    }
+
+    const { name, tier, tenantId, action, keyId } = req.body || {};
+
+    // Support upgrading tiers on an existing key or tenant
+    if (action === 'upgrade' || (keyId && tier)) {
+        if (!tier) {
+            return res.status(400).json({ success: false, error: 'Subscription tier is required for upgrade' });
+        }
+        let updatedKey = null;
+        if (keyId) {
+            updatedKey = defaultApiKeyService.updateKeyTier({ keyId, tier });
+        }
+        if (!updatedKey && tenantId) {
+            const updated = defaultApiKeyService.updateTenantSubscription({ tenantId, tier });
+            if (updated && updated.length > 0) {
+                updatedKey = updated[0];
+            }
+        }
+        if (!updatedKey) {
+            return res.status(404).json({ success: false, error: 'Target API key or tenant not found for tier upgrade' });
+        }
+        return res.status(200).json({
+            success: true,
+            message: `Tier successfully updated to ${tier.toUpperCase()}`,
+            apiKey: updatedKey
+        });
+    }
+
     if (!name || typeof name !== 'string') {
         return res.status(400).json({ success: false, error: 'Key name is required' });
     }
+
     const created = defaultApiKeyService.createKey({
         name: name.trim(),
         tier: tier || SubscriptionTier.STARTER,
         tenantId: tenantId || `tenant:${name.toLowerCase().replace(/[^a-z0-9]+/g, '_')}`
     });
+
     res.status(201).json({
         success: true,
         message: 'e2e_live_ API Key minted. Store raw secret securely; only its SHA-256 hash is persisted.',
@@ -210,19 +259,58 @@ app.post('/api/keys', (req, res) => {
     });
 });
 
+app.patch('/api/keys/:id', (req, res) => {
+    const token = extractToken(req);
+    if (!token) {
+        return res.status(401).json({
+            success: false,
+            error: 'Unauthorized: Master admin authentication required to upgrade tiers'
+        });
+    }
+
+    if (!defaultApiKeyService.isMasterAdmin(token)) {
+        return res.status(403).json({
+            success: false,
+            error: 'Forbidden: Master admin credentials required to upgrade tiers'
+        });
+    }
+
+    const { tier } = req.body || {};
+    if (!tier) {
+        return res.status(400).json({ success: false, error: 'Subscription tier is required for upgrade' });
+    }
+
+    const updatedKey = defaultApiKeyService.updateKeyTier({ keyId: req.params.id, tier });
+    if (!updatedKey) {
+        return res.status(404).json({ success: false, error: 'API key not found' });
+    }
+
+    res.status(200).json({
+        success: true,
+        message: `API Key tier upgraded to ${tier.toUpperCase()}`,
+        apiKey: updatedKey
+    });
+});
+
 app.get('/api/keys', (req, res) => {
     const token = extractToken(req);
     let tenantId = 'public';
+    let isAdmin = false;
     if (token) {
-        const validation = defaultApiKeyService.validateKey(token);
-        if (validation.valid && validation.apiKey) {
-            tenantId = validation.apiKey.tenantId;
+        if (defaultApiKeyService.isMasterAdmin(token)) {
+            isAdmin = true;
+            tenantId = req.query.tenantId || null;
+        } else {
+            const validation = defaultApiKeyService.validateKey(token);
+            if (validation.valid && validation.apiKey) {
+                tenantId = validation.apiKey.tenantId;
+            }
         }
     }
     res.json({
         success: true,
-        tenantId,
-        keys: defaultApiKeyService.listKeys(tenantId)
+        tenantId: tenantId || 'all',
+        keys: defaultApiKeyService.listKeys(isAdmin && !req.query.tenantId ? null : tenantId)
     });
 });
 
@@ -487,7 +575,7 @@ app.post('/api/webhooks/netlify', authMiddleware({ checkExecutionQuota: true }),
         });
     }
 
-    const urlCheck = puppeteerService.validateTargetUrl(targetUrl);
+    const urlCheck = await puppeteerService.validateTargetUrl(targetUrl);
     if (!urlCheck.valid) {
         return res.status(400).json({
             success: false,

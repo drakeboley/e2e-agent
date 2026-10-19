@@ -17,7 +17,7 @@
 ## 📁 Project Structure
 
 ```text
-/home/drake/e2ebot/
+/home/drake/enterprise-picard/ventures/e2ebot/projects/e2ebot/
 ├── server.js               # Express HTTP + WebSocket server daemon
 ├── puppeteer-service.js    # Headless Puppeteer browser controller
 ├── cypress-service.js      # Programmatic Cypress test runner
@@ -38,7 +38,7 @@
 
 Ensure dependencies are installed:
 ```bash
-cd /home/drake/e2ebot
+cd /home/drake/enterprise-picard/ventures/e2ebot/projects/e2ebot
 npm install
 ```
 
@@ -69,7 +69,7 @@ Add the server to `~/.gemini/config/mcp_config.json`:
   "mcpServers": {
     "e2ebot-testing": {
       "command": "node",
-      "args": ["/home/drake/e2ebot/mcp-server.js"],
+      "args": ["/home/drake/enterprise-picard/ventures/e2ebot/projects/e2ebot/mcp-server.js"],
       "env": {}
     }
   }
