@@ -428,6 +428,7 @@ function renderPortalHtml() {
             <option value="AGENCY">AGENCY ($199/mo — 2,500 runs / 10,000 mins)</option>
             <option value="ENTERPRISE">ENTERPRISE ($899/mo — 25,000 runs / 100,000 mins)</option>
           </select>
+          <input type="password" id="adminMasterKey" placeholder="Master Admin Key (Required for minting)" value="e2e_master_admin_dev_secret_key" />
           <button class="btn btn-primary" onclick="generateApiKey()">Mint e2e_live_ API Key</button>
         </div>
 
@@ -608,9 +609,14 @@ function renderPortalHtml() {
       const name = document.getElementById('newKeyName').value.trim() || 'Portal Generated Runner Key';
       const tenantId = document.getElementById('newKeyTenant').value.trim() || undefined;
       const tier = document.getElementById('newKeyTier').value;
+      const adminKey = (document.getElementById('adminMasterKey')?.value || '').trim();
+      const headers = { 'Content-Type': 'application/json' };
+      if (adminKey) {
+        headers['Authorization'] = 'Bearer ' + adminKey;
+      }
       const res = await fetch('/api/keys', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({ name, tenantId, tier })
       });
       const data = await res.json();
@@ -618,6 +624,8 @@ function renderPortalHtml() {
         document.getElementById('mintedSecretBanner').style.display = 'block';
         document.getElementById('mintedSecretValue').value = data.secret;
         document.getElementById('inspectorApiKey').value = data.secret;
+      } else if (data.error) {
+        alert('API Key Minting Error: ' + data.error);
       }
       await loadKeys();
     }

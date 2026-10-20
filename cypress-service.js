@@ -37,7 +37,7 @@ async function runSpec(specName, options = {}) {
     const safeSpec = sanitizeSpecName(specName);
 
     if (options.baseUrl) {
-        const urlCheck = validateTargetUrl(options.baseUrl, {
+        const urlCheck = await validateTargetUrl(options.baseUrl, {
             allowLocalhost: options.allowLocalhost
         });
         if (!urlCheck.valid) {

@@ -1,34 +1,178 @@
 const puppeteer = require('puppeteer');
 
+const dns = require('dns').promises;
+const ipaddr = require('ipaddr.js');
+
 let browser = null;
 const tenantSessions = new Map(); // tenantKey -> { context, page, lastActiveAt }
 
-const PRIVATE_HOST_PATTERNS = [
-    /^169\.254\./,                         // Cloud metadata & link-local (AWS/GCP/Azure 169.254.169.254)
-    /^10\./,                               // RFC1918 Class A private
-    /^192\.168\./,                         // RFC1918 Class C private
-    /^172\.(1[6-9]|2[0-9]|3[0-1])\./,      // RFC1918 Class B private
-    /^100\.(6[4-9]|[7-9][0-9]|1[0-1][0-9]|12[0-7])\./, // CGNAT / Alibaba metadata 100.100.100.200
-    /^0\./,                                // 0.0.0.0/8
-    /^\[?::1\]?$/i,                        // IPv6 loopback
-    /^\[?fe80:/i,                          // IPv6 link-local
-    /^\[?fc00:/i,                          // IPv6 unique local
-    /^\[?fd[0-9a-f]{2}:/i,                 // IPv6 unique local
-    /^metadata\.google\.internal$/i,
-    /^metadata$/i
-];
-
-const LOOPBACK_PATTERNS = [
+const HOSTNAME_BLOCKLIST = [
     /^localhost$/i,
-    /^127\./
+    /^.*\.localhost$/i,
+    /^metadata\.google\.internal$/i,
+    /^metadata$/i,
+    /^instance-data$/i
 ];
 
 /**
- * SAAS-2 (P0-2): Strict SSRF Target URL Validator.
- * Blocks file://, javascript:, data:, cloud metadata (169.254.169.254), RFC1918 private networks,
- * and loopback interfaces when E2EBOT_HOSTED_MODE=true.
+ * Parses any valid IPv4 or IPv6 string representation into an ipaddr.js address instance.
+ * Supports:
+ *  - Standard dotted decimal (e.g. 127.0.0.1, 169.254.169.254, 10.0.0.1)
+ *  - Single integer decimal representation (e.g. 2130706433, 2852039166, 167772161, 0)
+ *  - Single integer hex representation (e.g. 0x7f000001, 0xa9fea9fe)
+ *  - Single integer octal representation (e.g. 017700000001)
+ *  - Dotted hex (e.g. 0x7f.0.0.1, 0xa9.0xfe.0xa9.0xfe)
+ *  - Dotted octal (e.g. 0177.0.0.1, 0251.0376.0251.0376)
+ *  - Truncated classful notations (e.g. 127.1, 127.0.1, 0x7f.1)
+ *  - IPv6 literals (e.g. ::1, fe80::1, fc00::1)
+ *  - IPv4-mapped IPv6 (e.g. ::ffff:127.0.0.1, ::ffff:7f00:1, ::ffff:169.254.169.254)
+ * Returns null if the input is not an IP address (e.g. domain name).
  */
-function validateTargetUrl(rawUrl, options = {}) {
+function parseAnyIpAddress(input) {
+    if (!input || typeof input !== 'string') return null;
+    let s = input.trim().replace(/^\[|\]$/g, '').toLowerCase();
+
+    // Strip port if formatted as host:port without IPv6 multiple colons
+    if (s.includes(':') && !s.includes('::')) {
+        const parts = s.split(':');
+        if (parts.length === 2 && !parts[0].includes(':') && !parts[1].includes(':')) {
+            s = parts[0];
+        }
+    }
+
+    // Try IPv6
+    if (s.includes(':')) {
+        try {
+            let addr = ipaddr.parse(s);
+            if (addr.kind() === 'ipv6' && addr.isIPv4MappedAddress()) {
+                addr = addr.toIPv4Address();
+            }
+            return addr;
+        } catch (_e) {
+            return null;
+        }
+    }
+
+    // Single DWORD hex: 0x7f000001
+    if (/^0x[0-9a-f]+$/i.test(s)) {
+        const num = parseInt(s, 16);
+        if (!Number.isNaN(num) && num >= 0 && num <= 0xffffffff) {
+            const dotted = [(num >>> 24) & 255, (num >>> 16) & 255, (num >>> 8) & 255, num & 255].join('.');
+            return ipaddr.parse(dotted);
+        }
+        return null;
+    }
+
+    // Single DWORD octal (starts with 0 and all digits <= 7) or decimal
+    if (/^\d+$/.test(s)) {
+        let num;
+        if (s.startsWith('0') && s.length > 1 && !/[89]/.test(s)) {
+            num = parseInt(s, 8);
+        } else {
+            num = parseInt(s, 10);
+        }
+        if (!Number.isNaN(num) && num >= 0 && num <= 0xffffffff) {
+            const dotted = [(num >>> 24) & 255, (num >>> 16) & 255, (num >>> 8) & 255, num & 255].join('.');
+            return ipaddr.parse(dotted);
+        }
+        return null;
+    }
+
+    // Dotted notations: 1 to 4 parts, where parts can be decimal, octal, or hex
+    const parts = s.split('.');
+    if (parts.length >= 1 && parts.length <= 4 && parts.every(p => p.length > 0)) {
+        const parsedParts = [];
+        for (const p of parts) {
+            let val;
+            if (/^0x[0-9a-f]+$/i.test(p)) {
+                val = parseInt(p, 16);
+            } else if (/^0[0-7]+$/.test(p)) {
+                val = parseInt(p, 8);
+            } else if (/^\d+$/.test(p)) {
+                val = parseInt(p, 10);
+            } else {
+                return null;
+            }
+            if (Number.isNaN(val) || val < 0) return null;
+            parsedParts.push(val);
+        }
+
+        let dotted = null;
+        if (parsedParts.length === 4) {
+            if (parsedParts.every(v => v <= 255)) {
+                dotted = parsedParts.join('.');
+            }
+        } else if (parsedParts.length === 3) {
+            // A.B.C -> C is 16-bit
+            if (parsedParts[0] <= 255 && parsedParts[1] <= 255 && parsedParts[2] <= 65535) {
+                dotted = [parsedParts[0], parsedParts[1], (parsedParts[2] >>> 8) & 255, parsedParts[2] & 255].join('.');
+            }
+        } else if (parsedParts.length === 2) {
+            // A.B -> B is 24-bit
+            if (parsedParts[0] <= 255 && parsedParts[1] <= 0xffffff) {
+                dotted = [parsedParts[0], (parsedParts[1] >>> 16) & 255, (parsedParts[1] >>> 8) & 255, parsedParts[1] & 255].join('.');
+            }
+        } else if (parsedParts.length === 1) {
+            if (parsedParts[0] <= 0xffffffff) {
+                dotted = [(parsedParts[0] >>> 24) & 255, (parsedParts[0] >>> 16) & 255, (parsedParts[0] >>> 8) & 255, parsedParts[0] & 255].join('.');
+            }
+        }
+
+        if (dotted) {
+            try {
+                return ipaddr.parse(dotted);
+            } catch (_e) {
+                return null;
+            }
+        }
+    }
+
+    return null;
+}
+
+/**
+ * Classifies an ipaddr.js instance against restricted ranges:
+ * Loopback, private RFC1918, link-local, cloud metadata, broadcast, CGNAT, etc.
+ */
+function classifyIp(addr) {
+    if (!addr) return null;
+    let target = addr;
+    if (target.kind() === 'ipv6' && target.isIPv4MappedAddress()) {
+        target = target.toIPv4Address();
+    }
+    const ipStr = target.toString();
+    const range = target.range();
+
+    const isLoopback = range === 'loopback';
+    const isLinkLocal = range === 'linkLocal';
+    const isPrivate = range === 'private';
+    const isUniqueLocal = range === 'uniqueLocal';
+    const isCarrierGradeNat = range === 'carrierGradeNat';
+    const isUnspecified = range === 'unspecified';
+    const isBroadcast = range === 'broadcast';
+
+    // Cloud metadata specific checks (169.254.169.254 or Alibaba 100.100.100.200)
+    const isCloudMetadata = ipStr === '169.254.169.254' || ipStr === '100.100.100.200';
+
+    const isRestricted = isLinkLocal || isPrivate || isUniqueLocal || isCarrierGradeNat ||
+                         isUnspecified || isBroadcast || isCloudMetadata;
+
+    return {
+        ip: ipStr,
+        range,
+        isLoopback,
+        isLinkLocal,
+        isPrivate,
+        isCloudMetadata,
+        isRestricted
+    };
+}
+
+/**
+ * Synchronous SSRF validator.
+ * Validates protocol, parses URL, checks blocklisted hostnames and detects IP literals in any representation.
+ */
+function validateTargetUrlSync(rawUrl, options = {}) {
     if (!rawUrl || typeof rawUrl !== 'string') {
         return { valid: false, error: 'Target URL must be a non-empty string' };
     }
@@ -52,9 +196,23 @@ function validateTargetUrl(rawUrl, options = {}) {
         return { valid: false, error: 'Target URL is missing a valid hostname' };
     }
 
-    // Always block cloud metadata, link-local, and RFC1918 private ranges
-    for (const pattern of PRIVATE_HOST_PATTERNS) {
-        if (pattern.test(hostname)) {
+    // Extract raw host before WHATWG URL normalization (e.g. for decimal or octal IPs)
+    let rawHost = '';
+    const match = rawUrl.trim().match(/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\/([^/?#:]+)/);
+    if (match) {
+        rawHost = match[1].toLowerCase();
+    }
+
+    const hostedMode = process.env.E2EBOT_HOSTED_MODE !== 'false';
+    const allowLocalhost = options.allowLocalhost === true || process.env.E2EBOT_ALLOW_LOCALHOST === 'true' || !hostedMode;
+
+    // Check hostname blocklist (localhost, metadata.google.internal, etc.)
+    for (const pattern of HOSTNAME_BLOCKLIST) {
+        if (pattern.test(hostname) || (rawHost && pattern.test(rawHost))) {
+            if (/localhost/i.test(hostname) && allowLocalhost) {
+                // Allowed explicitly in local dev mode
+                continue;
+            }
             return {
                 valid: false,
                 error: `SSRF Protection: Target host '${hostname}' is restricted (private network or cloud metadata endpoint)`
@@ -62,21 +220,86 @@ function validateTargetUrl(rawUrl, options = {}) {
         }
     }
 
-    // Block localhost/loopback in hosted SaaS mode (unless explicitly permitted for local dev)
-    const hostedMode = process.env.E2EBOT_HOSTED_MODE !== 'false';
-    const allowLocalhost = options.allowLocalhost === true || process.env.E2EBOT_ALLOW_LOCALHOST === 'true' || !hostedMode;
-    if (!allowLocalhost) {
-        for (const pattern of LOOPBACK_PATTERNS) {
-            if (pattern.test(hostname)) {
+    // Check if either rawHost or parsed hostname is an IP address in ANY representation
+    const parsedIp = parseAnyIpAddress(rawHost) || parseAnyIpAddress(hostname);
+    if (parsedIp) {
+        const classified = classifyIp(parsedIp);
+        if (classified.isLoopback) {
+            if (!allowLocalhost) {
                 return {
                     valid: false,
-                    error: `SSRF Protection: Loopback target '${hostname}' is blocked in hosted multi-tenant mode`
+                    error: `SSRF Protection: Loopback target '${rawHost || hostname}' (${classified.ip}) is blocked in hosted multi-tenant mode`
+                };
+            }
+            return { valid: true, url: parsed.toString(), hostname, ip: classified.ip, needsDns: false };
+        }
+
+        if (classified.isRestricted) {
+            return {
+                valid: false,
+                error: `SSRF Protection: Target host '${rawHost || hostname}' (${classified.ip}) is restricted (${classified.range} / private network or cloud metadata endpoint)`
+            };
+        }
+
+        return { valid: true, url: parsed.toString(), hostname, ip: classified.ip, needsDns: false };
+    }
+
+    return { valid: true, url: parsed.toString(), hostname, needsDns: true };
+}
+
+/**
+ * SAAS-2 (P0-2 / SEC-02): Strict SSRF Target URL Validator with DNS Resolution.
+ * Blocks file://, javascript:, data:, cloud metadata (169.254.169.254), RFC1918 private networks,
+ * loopback interfaces (even encoded in decimal, octal, or hex), and hostnames that resolve to restricted IPs via DNS rebinding.
+ */
+async function validateTargetUrl(rawUrl, options = {}) {
+    const syncResult = validateTargetUrlSync(rawUrl, options);
+    if (!syncResult.valid) {
+        return syncResult;
+    }
+
+    // If already validated as IP literal (or if DNS check skipped), return
+    if (!syncResult.needsDns || options.skipDns === true) {
+        return syncResult;
+    }
+
+    const hostname = syncResult.hostname;
+    const hostedMode = process.env.E2EBOT_HOSTED_MODE !== 'false';
+    const allowLocalhost = options.allowLocalhost === true || process.env.E2EBOT_ALLOW_LOCALHOST === 'true' || !hostedMode;
+    const lookupFn = options.dnsResolver || dns.lookup;
+
+    try {
+        const records = await lookupFn(hostname, { all: true });
+        const addresses = Array.isArray(records) ? records : [records];
+
+        for (const entry of addresses) {
+            const ipStr = typeof entry === 'string' ? entry : entry.address;
+            const parsedIp = parseAnyIpAddress(ipStr);
+            if (!parsedIp) continue;
+
+            const classified = classifyIp(parsedIp);
+            if (classified.isLoopback) {
+                if (!allowLocalhost) {
+                    return {
+                        valid: false,
+                        error: `SSRF Protection: Hostname '${hostname}' resolved to loopback IP '${classified.ip}' which is blocked in hosted multi-tenant mode`
+                    };
+                }
+            } else if (classified.isRestricted) {
+                return {
+                    valid: false,
+                    error: `SSRF Protection: Hostname '${hostname}' resolved to restricted IP '${classified.ip}' (${classified.range} / private network or cloud metadata endpoint)`
                 };
             }
         }
-    }
 
-    return { valid: true, url: parsed.toString(), hostname };
+        return { valid: true, url: syncResult.url, hostname };
+    } catch (dnsErr) {
+        return {
+            valid: false,
+            error: `SSRF Protection: Unable to resolve hostname '${hostname}' via DNS (${dnsErr.message || 'ENOTFOUND'})`
+        };
+    }
 }
 
 async function initBrowser() {
@@ -116,17 +339,21 @@ async function createIsolatedContext() {
  */
 async function attachSsrfInterceptor(targetPage, options = {}) {
     await targetPage.setRequestInterception(true);
-    targetPage.on('request', (req) => {
-        const reqUrl = req.url();
-        // Allow harmless inline data: images/fonts loaded by legitimate pages, but validate all network navigations/subresources
-        if (reqUrl.startsWith('data:') && req.resourceType() !== 'document') {
+    targetPage.on('request', async (req) => {
+        try {
+            const reqUrl = req.url();
+            // Allow harmless inline data: images/fonts loaded by legitimate pages, but validate all network navigations/subresources
+            if (reqUrl.startsWith('data:') && req.resourceType() !== 'document') {
+                return req.continue();
+            }
+            const check = await validateTargetUrl(reqUrl, options);
+            if (!check.valid) {
+                return req.abort('accessdenied');
+            }
             return req.continue();
+        } catch (_err) {
+            return req.abort('failed');
         }
-        const check = validateTargetUrl(reqUrl, options);
-        if (!check.valid) {
-            return req.abort('accessdenied');
-        }
-        return req.continue();
     });
 }
 
@@ -181,7 +408,7 @@ async function executeAction(action = {}, contextOptions = {}) {
 
     // Validate URL upfront for navigation actions
     if (action.type === 'goto' || action.type === 'smokeTest') {
-        const urlCheck = validateTargetUrl(action.url, { allowLocalhost });
+        const urlCheck = await validateTargetUrl(action.url, { allowLocalhost });
         if (!urlCheck.valid) {
             return {
                 success: false,
@@ -348,6 +575,9 @@ module.exports = {
     closeBrowser,
     closeTenantSession,
     validateTargetUrl,
+    validateTargetUrlSync,
+    parseAnyIpAddress,
+    classifyIp,
     redactSensitiveText,
     isBrowserConnected
 };

@@ -1,3 +1,9 @@
 node_modules
 dist
 .env
+
+*.gguf
+node_modules/
+__pycache__/
+cpp/hi.hpp
+*.pth

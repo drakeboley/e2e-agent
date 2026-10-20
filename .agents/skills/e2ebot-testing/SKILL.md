@@ -109,7 +109,7 @@ If communicating with `e2ebot` from external scripts, non-MCP agents, or across 
 ### 1. Ensure Daemon is Running
 ```bash
 # Start daemon in background if not already active
-node /home/drake/e2ebot/server.js
+node /home/drake/enterprise-picard/ventures/e2ebot/projects/e2ebot/server.js
 ```
 The server listens on `http://localhost:3000` (REST) and `ws://localhost:3000` (WebSockets).
 
@@ -150,7 +150,7 @@ When tasked with testing a feature or application under development:
    - Query key elements using `puppeteer_getText` or inspect layout with `puppeteer_getDOM`.
    - Interact with new components via `puppeteer_type` and `puppeteer_click`.
 3. **Capture and Codify into Cypress**:
-   - If a flow must be run repeatedly on code changes, write a spec file in `/home/drake/e2ebot/cypress/e2e/<feature>.cy.js`.
+   - If a flow must be run repeatedly on code changes, write a spec file in `/home/drake/enterprise-picard/ventures/e2ebot/projects/e2ebot/cypress/e2e/<feature>.cy.js`.
    - Run `cypress_run` to verify that the spec passes consistently.
 4. **Report Results**:
    - Summarize passing tests, failed assertions, and any relevant DOM error messages.

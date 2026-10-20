@@ -2,12 +2,11 @@ const { defineConfig } = require("cypress");
 
 module.exports = defineConfig({
   e2e: {
-    baseUrl: "https://summondev.netlify.app",
+    baseUrl: process.env.CYPRESS_BASE_URL || "http://localhost:3000",
     supportFile: false,
-    specPattern: [
-      "cypress/e2e/**/*.cy.js",
-      "/home/drake/summon/cypress/e2e/**/*.cy.js"
-    ],
+    specPattern: process.env.CYPRESS_SPEC_PATTERN
+      ? [process.env.CYPRESS_SPEC_PATTERN]
+      : ["cypress/e2e/**/*.cy.js"],
     chromeWebSecurity: false,
     viewportWidth: 1280,
     viewportHeight: 800,
