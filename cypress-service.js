@@ -1,4 +1,10 @@
-const cypress = require('cypress');
+let _cypress = null;
+function getCypress() {
+    if (!_cypress) {
+        _cypress = require('cypress');
+    }
+    return _cypress;
+}
 const path = require('path');
 const { validateTargetUrl } = require('./puppeteer-service');
 
@@ -65,6 +71,7 @@ async function runSpec(specName, options = {}) {
             runConfig.config.baseUrl = options.baseUrl;
         }
 
+        const cypress = getCypress();
         const results = await cypress.run(runConfig);
         return {
             ...results,
