@@ -1,4 +1,15 @@
-const puppeteer = require('puppeteer');
+let _puppeteer = null;
+async function getPuppeteer() {
+    if (!_puppeteer) {
+        try {
+            const mod = await import('puppeteer');
+            _puppeteer = mod.default || mod;
+        } catch (_esmErr) {
+            _puppeteer = require('puppeteer');
+        }
+    }
+    return _puppeteer;
+}
 
 const dns = require('dns').promises;
 const ipaddr = require('ipaddr.js');
@@ -304,6 +315,7 @@ async function validateTargetUrl(rawUrl, options = {}) {
 
 async function initBrowser() {
     if (!browser) {
+        const puppeteer = await getPuppeteer();
         browser = await puppeteer.launch({
             headless: true,
             args: [
