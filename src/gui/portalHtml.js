@@ -402,7 +402,7 @@ function renderPortalHtml() {
         </p>
         <div class="form-row">
           <input type="url" id="smokeUrl" placeholder="https://example.com or deploy-preview-42--site.netlify.app" value="https://example.com" />
-          <input type="text" id="inspectorApiKey" placeholder="Bearer API Key (default: e2e_live_dev_lab_key_1234567890abcdef)" value="e2e_live_dev_lab_key_1234567890abcdef" />
+          <input type="text" id="inspectorApiKey" placeholder="Bearer API Key (e.g. e2e_live_...)" />
           <label style="display:flex; align-items:center; gap:0.4rem; font-size:0.88rem;">
             <input type="checkbox" id="captureScreenshot" /> Capture Screenshot
           </label>
@@ -428,7 +428,7 @@ function renderPortalHtml() {
             <option value="AGENCY">AGENCY ($199/mo — 2,500 runs / 10,000 mins)</option>
             <option value="ENTERPRISE">ENTERPRISE ($899/mo — 25,000 runs / 100,000 mins)</option>
           </select>
-          <input type="password" id="adminMasterKey" placeholder="Master Admin Key (Required for minting)" value="e2e_master_admin_dev_secret_key" />
+          <input type="password" id="adminMasterKey" placeholder="Master Admin Key (Required for minting)" />
           <button class="btn btn-primary" onclick="generateApiKey()">Mint e2e_live_ API Key</button>
         </div>
 
@@ -566,6 +566,35 @@ function renderPortalHtml() {
   </div>
 
   <script>
+    function getSavedApiKey() {
+      try {
+        return localStorage.getItem('e2ebot_api_key') || '';
+      } catch (_e) {
+        return '';
+      }
+    }
+
+    function saveApiKey(key) {
+      try {
+        if (key && key.trim()) {
+          localStorage.setItem('e2ebot_api_key', key.trim());
+        } else {
+          localStorage.removeItem('e2ebot_api_key');
+        }
+      } catch (_e) {}
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      const saved = getSavedApiKey();
+      const input = document.getElementById('inspectorApiKey');
+      if (saved && input) {
+        input.value = saved;
+      }
+      if (input) {
+        input.addEventListener('input', (e) => saveApiKey(e.target.value));
+      }
+    });
+
     function switchTab(tabId, btnEl) {
       document.querySelectorAll('.view-panel').forEach(p => p.classList.remove('active'));
       document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
@@ -585,9 +614,14 @@ function renderPortalHtml() {
 
     async function runSmokeTest() {
       const url = document.getElementById('smokeUrl').value.trim();
-      const apiKey = document.getElementById('inspectorApiKey').value.trim();
+      const apiKey = (document.getElementById('inspectorApiKey')?.value || getSavedApiKey()).trim();
       const captureScreenshot = document.getElementById('captureScreenshot').checked;
       const out = document.getElementById('smokeOutput');
+      if (!apiKey) {
+        out.textContent = '// Authentication Error: Please provide an e2e_live_ API key above.';
+        return;
+      }
+      saveApiKey(apiKey);
       out.textContent = 'Running isolated ephemeral BrowserContext smoke test against ' + url + '...';
       try {
         const res = await fetch('/api/puppeteer/smoke', {
@@ -623,7 +657,9 @@ function renderPortalHtml() {
       if (data.secret) {
         document.getElementById('mintedSecretBanner').style.display = 'block';
         document.getElementById('mintedSecretValue').value = data.secret;
-        document.getElementById('inspectorApiKey').value = data.secret;
+        const keyInput = document.getElementById('inspectorApiKey');
+        if (keyInput) keyInput.value = data.secret;
+        saveApiKey(data.secret);
       } else if (data.error) {
         alert('API Key Minting Error: ' + data.error);
       }
@@ -631,26 +667,60 @@ function renderPortalHtml() {
     }
 
     async function loadKeys() {
-      const apiKey = document.getElementById('inspectorApiKey').value.trim();
-      const res = await fetch('/api/keys', {
-        headers: apiKey ? { 'Authorization': 'Bearer ' + apiKey } : {}
-      });
-      const data = await res.json();
-      document.getElementById('keysListOutput').textContent = JSON.stringify(data, null, 2);
+      const apiKey = (document.getElementById('inspectorApiKey')?.value || getSavedApiKey()).trim();
+      const output = document.getElementById('keysListOutput');
+      if (!apiKey) {
+        output.textContent = '// Authentication Required: Provide your e2e_live_ API key in the Inspector input above to view active workspace keys.';
+        return;
+      }
+      saveApiKey(apiKey);
+      output.textContent = '// Querying active tenant keys...';
+      try {
+        const res = await fetch('/api/keys', {
+          headers: { 'Authorization': 'Bearer ' + apiKey }
+        });
+        const data = await res.json();
+        if (!res.ok || data.error) {
+          output.textContent = '// Authentication Error (' + (res.status || 401) + '): ' + (data.error || 'Invalid or expired API key. Enter a valid e2e_live_ key.');
+          return;
+        }
+        output.textContent = JSON.stringify(data, null, 2);
+      } catch (err) {
+        output.textContent = '// Network error loading keys: ' + err.message;
+      }
     }
 
     async function loadTelemetry() {
-      const apiKey = document.getElementById('inspectorApiKey').value.trim();
-      const res = await fetch('/api/telemetry', {
-        headers: apiKey ? { 'Authorization': 'Bearer ' + apiKey } : {}
-      });
-      const data = await res.json();
-      document.getElementById('telemetryRawOutput').textContent = JSON.stringify(data, null, 2);
-      if (data && data.limits && data.usage) {
-        document.getElementById('statTier').textContent = data.tier;
-        document.getElementById('statRuns').textContent = data.usage.deployRunsUsed + ' / ' + data.limits.monthlyDeployPreviewRuns;
-        document.getElementById('statMinutes').textContent = data.usage.browserMinutesUsed + ' / ' + data.limits.monthlyBrowserMinutes;
-        document.getElementById('statRequests').textContent = data.usage.requestsUsed;
+      const apiKey = (document.getElementById('inspectorApiKey')?.value || getSavedApiKey()).trim();
+      const output = document.getElementById('telemetryRawOutput');
+      if (!apiKey) {
+        output.textContent = '// Authentication Required: Provide your e2e_live_ API key in the Inspector input above to load real-time telemetry.';
+        document.getElementById('statTier').textContent = '—';
+        document.getElementById('statRuns').textContent = '—';
+        document.getElementById('statMinutes').textContent = '—';
+        document.getElementById('statRequests').textContent = '—';
+        return;
+      }
+      saveApiKey(apiKey);
+      output.textContent = '// Fetching real-time workspace telemetry...';
+      try {
+        const res = await fetch('/api/telemetry', {
+          headers: { 'Authorization': 'Bearer ' + apiKey }
+        });
+        const data = await res.json();
+        if (!res.ok || data.error) {
+          output.textContent = '// Authentication Error (' + (res.status || 401) + '): ' + (data.error || 'Invalid API key');
+          return;
+        }
+        output.textContent = JSON.stringify(data, null, 2);
+        if (data && data.limits && data.usage) {
+          document.getElementById('statTier').textContent = data.tier || 'PRO';
+          document.getElementById('statRuns').textContent = data.usage.deployRunsUsed + ' / ' + data.limits.monthlyDeployPreviewRuns;
+          document.getElementById('statMinutes').textContent = (typeof data.usage.browserMinutesUsed === 'number' ? data.usage.browserMinutesUsed.toFixed(2) : data.usage.browserMinutesUsed) + ' / ' + data.limits.monthlyBrowserMinutes;
+          document.getElementById('statRequests').textContent = data.usage.requestsUsed;
+        }
+      } catch (err) {
+        output.textContent = '// Network error fetching telemetry: ' + err.message;
       }
     }
 
