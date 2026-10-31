@@ -207,6 +207,51 @@ describe('Remediation: SEC-01 — POST /api/keys Master Admin Authentication & T
             process.env.NODE_ENV = origEnv;
         }
     });
+
+    it('AUDIT-1: hardcoded dev master admin fallback secret is rejected (fail closed)', () => {
+        assert.strictEqual(defaultApiKeyService.isMasterAdmin('e2e_master_admin_dev_secret_key'), false);
+    });
+
+    it('AUDIT-1: default dev lab key is never seeded without explicit SEED_DEFAULT_DEV_KEY + E2EBOT_DEV_KEY opt-in', () => {
+        const svc = new ApiKeyService();
+        const check = svc.validateKey('e2e_live_dev_lab_key_1234567890abcdef');
+        assert.strictEqual(check.valid, false, 'Hardcoded dev lab key must never be seeded');
+    });
+
+    it('AUDIT-5: GET /api/keys and GET /api/telemetry reject unauthenticated requests with 401', async () => {
+        const keysRes = await fetch(`${baseUrl}/api/keys`);
+        assert.strictEqual(keysRes.status, 401);
+        const keysData = await keysRes.json();
+        assert.strictEqual(keysData.success, false);
+
+        const telRes = await fetch(`${baseUrl}/api/telemetry`);
+        assert.strictEqual(telRes.status, 401);
+    });
+
+    it('AUDIT-5: GET /api/keys scopes results to the caller tenant only', async () => {
+        defaultApiKeyService.createKey({
+            name: 'Other Tenant Key',
+            tier: SubscriptionTier.STARTER,
+            tenantId: 'tenant:audit_other'
+        });
+        const { rawSecret } = defaultApiKeyService.createKey({
+            name: 'Scoped Viewer Key',
+            tier: SubscriptionTier.STARTER,
+            tenantId: 'tenant:audit_scoped'
+        });
+
+        const res = await fetch(`${baseUrl}/api/keys`, {
+            headers: { 'Authorization': `Bearer ${rawSecret}` }
+        });
+        assert.strictEqual(res.status, 200);
+        const data = await res.json();
+        assert.ok(Array.isArray(data.keys));
+        assert.ok(data.keys.length > 0);
+        assert.ok(
+            data.keys.every(k => k.tenantId === 'tenant:audit_scoped'),
+            'Caller must only see keys belonging to their own tenant'
+        );
+    });
 });
 
 describe('Remediation: SEC-02 — SSRF Target URL Protection with IP Encoding & DNS Validation', () => {

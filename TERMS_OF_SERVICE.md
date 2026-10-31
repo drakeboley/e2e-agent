@@ -1,9 +1,9 @@
-# E2EBot (`e2ebot.dev`) — Terms of Service, SSRF Prohibition & Subscription Agreement
+# E2EBot (`e2e-agent.com`) — Terms of Service, SSRF Prohibition & Subscription Agreement
 
 **Document ID:** `EPIC-E2EBOT-TERMS-10`  
 **Effective Date:** October 12, 2026  
 **Operating Entity:** Enterprise Picard LLC d/b/a E2EBot Cloud  
-**Legal & Abuse Contact:** `legal@enterprisepicard.com` | **Billing Support:** `billing@e2ebot.dev`
+**Legal & Abuse Contact:** `support@e2e-agent.com` | **Billing Support:** `support@e2e-agent.com`
 
 ---
 
@@ -21,7 +21,7 @@ By accessing or using E2EBot (`e2ebot`), provisioning an `e2e_live_` API key, or
 
 ## 3. California Automatic Renewal Law (ARL — Cal. Bus. & Prof. Code § 17600 et seq.)
 
-> **CALIFORNIA AUTOMATIC RENEWAL LAW (ARL) DISCLOSURE (CAL. BUS. & PROF. CODE § 17602):** Paid E2EBot subscriptions (`PRO` at $49/month, `AGENCY` at $199/month, and `ENTERPRISE` at $899/month) automatically renew at the end of each monthly or annual billing cycle at the then-current tier rate unless cancelled prior to the renewal date. By checking the affirmative consent box at checkout, you authorize recurring charges to your payment method. You may cancel your subscription at any time with one click via **Developer Portal → Pricing & Billing → Cancel Subscription (Self-Serve Billing Portal)** or by emailing `billing@e2ebot.dev` (at least 24 hours before renewal to avoid the next period's charge).
+> **CALIFORNIA AUTOMATIC RENEWAL LAW (ARL) DISCLOSURE (CAL. BUS. & PROF. CODE § 17602):** Paid E2EBot subscriptions (`PRO` at $49/month, `AGENCY` at $199/month, and `ENTERPRISE` at $899/month) automatically renew at the end of each monthly or annual billing cycle at the then-current tier rate unless cancelled prior to the renewal date. By checking the affirmative consent box at checkout, you authorize recurring charges to your payment method. You may cancel your subscription at any time with one click via **Developer Portal → Pricing & Billing → Cancel Subscription (Self-Serve Billing Portal)** or by emailing `support@e2e-agent.com` (at least 24 hours before renewal to avoid the next period's charge).
 
 ---
 

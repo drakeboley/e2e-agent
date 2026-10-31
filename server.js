@@ -54,7 +54,21 @@ app.use(
         }
     })
 );
-app.use(cors());
+const ALLOWED_CORS_ORIGINS = new Set([
+    'https://e2e-agent.com',
+    'http://localhost:3000',
+    'http://127.0.0.1:3000'
+]);
+
+// Audit-7: Restrict CORS to the production origin + localhost dev (no wildcard on key-minting/billing endpoints)
+app.use(cors({
+    origin: (origin, callback) => {
+        if (!origin || ALLOWED_CORS_ORIGINS.has(origin)) {
+            return callback(null, true);
+        }
+        return callback(null, false);
+    }
+}));
 
 function extractToken(req) {
     const adminKey = req.headers['x-admin-key'] || req.headers['x-e2ebot-admin-key'];
@@ -170,13 +184,13 @@ app.get('/api/compliance/policy', (_req, res) => {
             testCredentialsAndCookies: 'Volatile RAM only; redacted from logs and never stored at rest',
             apiKeys: 'Stored exclusively as SHA-256 hashes until revoked'
         },
-        contactEmail: 'privacy@enterprisepicard.com'
+        contactEmail: 'support@e2e-agent.com'
     });
 });
 
 app.get('/privacy', (_req, res) => {
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.send(`<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>Privacy Policy &amp; Ephemeral Browser Covenant — E2EBot Cloud</title><style>body{background:#070b14;color:#f1f5f9;font-family:system-ui,sans-serif;max-width:880px;margin:2rem auto;padding:2rem;line-height:1.65;}h1,h2{color:#38bdf8;}blockquote{background:rgba(16,185,129,0.1);border-left:4px solid #10b981;padding:1rem;margin:1.5rem 0;border-radius:6px;}a{color:#38bdf8;}</style></head><body><h1>E2EBot Cloud: Privacy Policy &amp; Ephemeral Browser Execution Covenant</h1><p><strong>Effective Date:</strong> October 12, 2026 | <strong>Entity:</strong> Enterprise Picard LLC d/b/a E2EBot Cloud | <strong>Ref:</strong> EPIC-E2EBOT-PRIVACY-09</p><blockquote><strong>${EPHEMERAL_EXECUTION_COVENANT}</strong></blockquote><h2>1. Scope &amp; Ephemeral Architecture</h2><p>Every Puppeteer smoke test and Cypress regression run executes inside an isolated <code>BrowserContext</code> that is destroyed immediately upon test run completion. Cookies, <code>localStorage</code>, DOM snapshots, and auth headers are purged immediately (0 seconds post-run retention).</p><h2>2. Information Collected</h2><ul><li>Account &amp; Workspace metadata (email, <code>tenantId</code>, subscription tier, SHA-256 hashed <code>e2e_live_</code> API keys).</li><li>Billing identifiers processed via Stripe (no raw payment card numbers are stored on E2EBot servers).</li><li>Redacted execution telemetry (run counts and browser execution minutes for tier quota metering).</li></ul><h2>3. Zero AI Model Training</h2><p>Private staging URLs, deploy previews, DOM structures, and screenshots are <strong>never</strong> used to train, fine-tune, or evaluate any AI/ML models.</p><h2>4. GDPR &amp; CCPA/CPRA Rights</h2><p>Contact <a href="mailto:privacy@enterprisepicard.com">privacy@enterprisepicard.com</a> to exercise access, rectification, or immediate cryptographic erasure rights.</p><p><a href="/">← Return to E2EBot Cloud Portal</a></p></body></html>`);
+    res.send(`<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>Privacy Policy &amp; Ephemeral Browser Covenant — E2EBot Cloud</title><style>body{background:#070b14;color:#f1f5f9;font-family:system-ui,sans-serif;max-width:880px;margin:2rem auto;padding:2rem;line-height:1.65;}h1,h2{color:#38bdf8;}blockquote{background:rgba(16,185,129,0.1);border-left:4px solid #10b981;padding:1rem;margin:1.5rem 0;border-radius:6px;}a{color:#38bdf8;}</style></head><body><h1>E2EBot Cloud: Privacy Policy &amp; Ephemeral Browser Execution Covenant</h1><p><strong>Effective Date:</strong> October 12, 2026 | <strong>Entity:</strong> Enterprise Picard LLC d/b/a E2EBot Cloud | <strong>Ref:</strong> EPIC-E2EBOT-PRIVACY-09</p><blockquote><strong>${EPHEMERAL_EXECUTION_COVENANT}</strong></blockquote><h2>1. Scope &amp; Ephemeral Architecture</h2><p>Every Puppeteer smoke test and Cypress regression run executes inside an isolated <code>BrowserContext</code> that is destroyed immediately upon test run completion. Cookies, <code>localStorage</code>, DOM snapshots, and auth headers are purged immediately (0 seconds post-run retention).</p><h2>2. Information Collected</h2><ul><li>Account &amp; Workspace metadata (email, <code>tenantId</code>, subscription tier, SHA-256 hashed <code>e2e_live_</code> API keys).</li><li>Billing identifiers processed via Stripe (no raw payment card numbers are stored on E2EBot servers).</li><li>Redacted execution telemetry (run counts and browser execution minutes for tier quota metering).</li></ul><h2>3. Zero AI Model Training</h2><p>Private staging URLs, deploy previews, DOM structures, and screenshots are <strong>never</strong> used to train, fine-tune, or evaluate any AI/ML models.</p><h2>4. GDPR &amp; CCPA/CPRA Rights</h2><p>Contact <a href="mailto:support@e2e-agent.com">support@e2e-agent.com</a> to exercise access, rectification, or immediate cryptographic erasure rights.</p><p><a href="/">← Return to E2EBot Cloud Portal</a></p></body></html>`);
 });
 
 app.get('/terms', (_req, res) => {
@@ -208,6 +222,12 @@ app.post('/api/keys', (req, res) => {
     }
 
     if (!defaultApiKeyService.isMasterAdmin(token)) {
+        if (!defaultApiKeyService.isMasterAdminConfigured()) {
+            return res.status(503).json({
+                success: false,
+                error: 'Master admin credentials are not configured on this E2EBot instance (set E2EBOT_MASTER_ADMIN_KEY). Key minting is disabled.'
+            });
+        }
         return res.status(403).json({
             success: false,
             error: 'Forbidden: Master admin credentials required to issue API keys or upgrade tiers'
@@ -269,6 +289,12 @@ app.patch('/api/keys/:id', (req, res) => {
     }
 
     if (!defaultApiKeyService.isMasterAdmin(token)) {
+        if (!defaultApiKeyService.isMasterAdminConfigured()) {
+            return res.status(503).json({
+                success: false,
+                error: 'Master admin credentials are not configured on this E2EBot instance (set E2EBOT_MASTER_ADMIN_KEY). Tier upgrades are disabled.'
+            });
+        }
         return res.status(403).json({
             success: false,
             error: 'Forbidden: Master admin credentials required to upgrade tiers'
@@ -292,20 +318,30 @@ app.patch('/api/keys/:id', (req, res) => {
     });
 });
 
+// Audit-5: GET /api/keys & GET /api/telemetry require authentication and are scoped to the caller's tenant
 app.get('/api/keys', (req, res) => {
     const token = extractToken(req);
+    if (!token) {
+        return res.status(401).json({
+            success: false,
+            error: 'Unauthorized: Valid e2e_live_ Bearer API key or master admin credentials required to list API keys'
+        });
+    }
+
     let tenantId = 'public';
     let isAdmin = false;
-    if (token) {
-        if (defaultApiKeyService.isMasterAdmin(token)) {
-            isAdmin = true;
-            tenantId = req.query.tenantId || null;
-        } else {
-            const validation = defaultApiKeyService.validateKey(token);
-            if (validation.valid && validation.apiKey) {
-                tenantId = validation.apiKey.tenantId;
-            }
+    if (defaultApiKeyService.isMasterAdmin(token)) {
+        isAdmin = true;
+        tenantId = req.query.tenantId || null;
+    } else {
+        const validation = defaultApiKeyService.validateKey(token);
+        if (!validation.valid || !validation.apiKey) {
+            return res.status(validation.statusCode || 401).json({
+                success: false,
+                error: validation.error || 'Unauthorized: Valid e2e_live_ Bearer API key required'
+            });
         }
+        tenantId = validation.apiKey.tenantId;
     }
     res.json({
         success: true,
@@ -316,20 +352,31 @@ app.get('/api/keys', (req, res) => {
 
 app.get('/api/telemetry', (req, res) => {
     const token = extractToken(req);
-    let tenantId = 'tenant:software_lab';
-    if (token) {
-        const validation = defaultApiKeyService.validateKey(token);
-        if (validation.valid && validation.apiKey) {
-            tenantId = validation.apiKey.tenantId;
-        }
+    if (!token) {
+        return res.status(401).json({
+            success: false,
+            error: 'Unauthorized: Valid e2e_live_ Bearer API key required to view tenant telemetry'
+        });
     }
-    res.json(defaultApiKeyService.getTenantTelemetry(tenantId));
+
+    if (defaultApiKeyService.isMasterAdmin(token) && req.query.tenantId) {
+        return res.json(defaultApiKeyService.getTenantTelemetry(req.query.tenantId));
+    }
+
+    const validation = defaultApiKeyService.validateKey(token);
+    if (!validation.valid || !validation.apiKey) {
+        return res.status(validation.statusCode || 401).json({
+            success: false,
+            error: validation.error || 'Unauthorized: Valid e2e_live_ Bearer API key required'
+        });
+    }
+    res.json(defaultApiKeyService.getTenantTelemetry(validation.apiKey.tenantId));
 });
 
 app.post('/api/billing/create-checkout-session', async (req, res) => {
     try {
         const { tier, email, tenantId, arlConsent, successUrl, cancelUrl } = req.body || {};
-        const baseUrl = req.headers.origin || (req.headers.host ? `https://${req.headers.host}` : 'https://e2ebot.dev');
+        const baseUrl = req.headers.origin || (req.headers.host ? `https://${req.headers.host}` : 'https://e2e-agent.com');
         const session = await createCheckoutSession({
             tier: tier || SubscriptionTier.PRO,
             customerEmail: email,
@@ -347,9 +394,15 @@ app.post('/api/billing/create-checkout-session', async (req, res) => {
 app.post('/api/billing/create-portal-session', async (req, res) => {
     try {
         const { customerId, returnUrl } = req.body || {};
-        const baseUrl = req.headers.origin || (req.headers.host ? `https://${req.headers.host}` : 'https://e2ebot.dev');
+        if (!customerId || typeof customerId !== 'string' || !customerId.startsWith('cus_')) {
+            return res.status(400).json({
+                success: false,
+                error: 'A valid Stripe Customer ID (cus_...) is required to open the self-serve billing portal. It is included in your subscription receipt email — contact support@e2e-agent.com if you need it.'
+            });
+        }
+        const baseUrl = req.headers.origin || (req.headers.host ? `https://${req.headers.host}` : 'https://e2e-agent.com');
         const portal = await createCustomerPortalSession({
-            customerId: customerId || 'cus_self_serve',
+            customerId,
             returnUrl: returnUrl || baseUrl
         });
         res.status(200).json({ success: true, ...portal });
@@ -359,7 +412,8 @@ app.post('/api/billing/create-portal-session', async (req, res) => {
 });
 
 // SAAS-4 (P0-4): Strict Raw-Body HMAC Stripe Webhook Handler
-app.post('/api/billing/webhook', async (req, res) => {
+// Audit-3: Also mounted at /api/webhooks/stripe (the URL registered in the Stripe Dashboard webhook endpoint)
+const stripeWebhookHandler = async (req, res) => {
     const signature = req.headers['stripe-signature'];
     if (!signature) {
         return res.status(400).json({ success: false, error: 'Missing stripe-signature header' });
@@ -374,7 +428,10 @@ app.post('/api/billing/webhook', async (req, res) => {
         const status = err.statusCode || 400;
         return res.status(status).json({ success: false, error: `Webhook Error: ${err.message}` });
     }
-});
+};
+
+app.post('/api/billing/webhook', stripeWebhookHandler);
+app.post('/api/webhooks/stripe', stripeWebhookHandler);
 
 app.get('/api/billing/audit-ledger', authMiddleware(), (_req, res) => {
     res.json({ success: true, ledger: getFiduciaryAuditLedger() });

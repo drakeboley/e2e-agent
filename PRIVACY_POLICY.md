@@ -1,9 +1,9 @@
-# E2EBot (`e2ebot.dev`) — Platform Privacy Policy & Ephemeral Browser Execution Covenant
+# E2EBot (`e2e-agent.com`) — Platform Privacy Policy & Ephemeral Browser Execution Covenant
 
 **Document ID:** `EPIC-E2EBOT-PRIVACY-09`  
 **Effective Date:** October 12, 2026  
 **Operating Entity:** Enterprise Picard LLC d/b/a E2EBot Cloud  
-**Privacy Contact:** `privacy@enterprisepicard.com`
+**Privacy Contact:** `support@e2e-agent.com`
 
 ---
 
@@ -46,4 +46,4 @@ Enterprise Picard LLC **never** uses your private staging URLs, deploy-preview D
 
 - **GDPR (EEA/UK):** Processed under Article 6(1)(b) (Contractual Necessity) and Article 6(1)(f) (Legitimate Interest in securing multi-tenant infrastructure). You may exercise Articles 15–20 rights (Access, Rectification, Erasure, Portability) at any time.
 - **CCPA / CPRA (California):** We do not "sell" or "share" personal information for cross-context behavioral advertising.
-- **Exercising Rights:** Submit requests to `privacy@enterprisepicard.com`.
+- **Exercising Rights:** Submit requests to `support@e2e-agent.com`.

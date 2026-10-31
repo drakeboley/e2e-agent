@@ -230,3 +230,20 @@ The following medium/low items remain tracked from `CODE_AUDIT_RESULTS.md` for s
 4. **PERF-01 (HIGH)**: Add idle TTL eviction to `tenantSessions` (e.g. 10-minute timeout) and bound `fiduciaryAuditLedger` / `processedWebhookEvents`.
 5. **ARCH-02 (MEDIUM)**: Replace global `process.stdout.write` redirect in `cypress-service.js` with programmatic Cypress custom reporter options.
 6. **SEC-06 (LOW)**: Enable `chromeWebSecurity: true` in Cypress configuration.
+
+---
+
+## 5. Round 2 — Production Audit Remediation (October 20, 2026)
+
+Follow-up live audit of https://e2e-agent.com (8 findings). All code fixes below are fail-closed.
+
+1. **AUDIT-1 (CRITICAL — auth bypass)**: Removed hardcoded `'e2e_master_admin_dev_secret_key'` dev fallback from `isMasterAdmin()` and the hardcoded `'e2e_live_dev_lab_key_1234567890abcdef'` PRO key seed from `ApiKeyService` constructor (`src/auth/apiKeyService.js`). Seeding now requires explicit `SEED_DEFAULT_DEV_KEY=true` + `E2EBOT_DEV_KEY`; admin auth requires `E2EBOT_MASTER_ADMIN_KEY` (or alias) and returns `503` with a clear message when unconfigured.
+2. **AUDIT-2 (CRITICAL — broken billing)**: `createCheckoutSession()` no longer falls back to placeholder price IDs (`price_e2ebot_pro_49_monthly` etc.). When Stripe is configured, missing `STRIPE_PRICE_ID_PRO/AGENCY/ENTERPRISE` throws `Billing Not Configured: STRIPE_PRICE_ID_<TIER>...` instead of Stripe `No such price`. Billing-portal sessions fail closed: `server.js` requires a real `cus_...` customerId (no `cus_self_serve` default), the portal GUI requires the customer's Stripe Customer ID, and `createCustomerPortalSession()` throws instead of returning a fake placeholder URL.
+3. **AUDIT-3 (webhook lifecycle)**: Stripe webhook handler extracted and mounted at both `/api/billing/webhook` and `/api/webhooks/stripe` (the audit-specified endpoint URL). Processes `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`, `invoice.payment_failed`.
+4. **AUDIT-4 (dead-end post-checkout)**: Portal `startCheckout()` now redirects (`window.location.href`) to hosted Stripe Checkout. Added `handleBillingReturn()` which reads `?billing_status=`/`?session_id=`/`?tier=`, renders a provisioning-confirmation banner (webhook-provisioning + `support@e2e-agent.com` support path) on the Pricing tab, and cleans the URL.
+5. **AUDIT-5 (unscoped data exposure)**: `GET /api/keys` and `GET /api/telemetry` now return `401` unauthenticated and scope results to the caller's tenant (master admin may optionally pass `?tenantId=`).
+6. **AUDIT-6 (dead domains)**: Replaced all `e2ebot.dev` / `enterprisepicard.com` references (server fallback base URLs, portal OG/meta, privacy/terms pages, docs) with `https://e2e-agent.com` and all contact emails with `support@e2e-agent.com`.
+7. **AUDIT-7 (CORS wildcard)**: `app.use(cors())` replaced with an origin allowlist (`https://e2e-agent.com`, `http://localhost:3000`, `http://127.0.0.1:3000`).
+8. **AUDIT-8 (`/mcp` 404)**: Added `/mcp → /.netlify/functions/api/api/mcp` (200) redirect to `netlify.toml` and the build-generated `dist/_redirects`.
+
+**Deferred (requires owner-held Stripe credentials — Netlify masks secret env values API-side, write-only):** creating/reusing Stripe prices + setting `STRIPE_PRICE_ID_*`, creating the Stripe webhook endpoint and setting `STRIPE_WEBHOOK_SECRET`. Until those env vars are set, checkout and webhook fail closed with explicit `Billing Not Configured` / `not configured` errors rather than fake success.

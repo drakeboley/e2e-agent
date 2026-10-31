@@ -111,15 +111,21 @@ async function createCheckoutSession(params = {}) {
 
     const tenantId = params.tenantId || `tenant_${Date.now().toString(36)}`;
     const limits = TIER_LIMITS[tier];
+    // Audit-2: fail closed — no hardcoded placeholder price IDs; each tier price must be explicitly configured
     const priceEnvMap = {
-        PRO: process.env.STRIPE_PRICE_ID_PRO || 'price_e2ebot_pro_49_monthly',
-        AGENCY: process.env.STRIPE_PRICE_ID_AGENCY || 'price_e2ebot_agency_199_monthly',
-        ENTERPRISE: process.env.STRIPE_PRICE_ID_ENTERPRISE || 'price_e2ebot_enterprise_899_monthly'
+        PRO: process.env.STRIPE_PRICE_ID_PRO,
+        AGENCY: process.env.STRIPE_PRICE_ID_AGENCY,
+        ENTERPRISE: process.env.STRIPE_PRICE_ID_ENTERPRISE
     };
-    const priceId = priceEnvMap[tier];
 
     const stripe = getStripeClient();
     if (stripe && stripe.checkout && stripe.checkout.sessions) {
+        const priceId = priceEnvMap[tier];
+        if (!priceId) {
+            throw new Error(
+                `Billing Not Configured: STRIPE_PRICE_ID_${tier} environment variable is not set for the ${tier} ($${limits.priceMonthly}/mo) tier. Contact support@e2e-agent.com.`
+            );
+        }
         const session = await stripe.checkout.sessions.create({
             mode: 'subscription',
             customer_email: params.customerEmail,
@@ -170,16 +176,15 @@ async function createCustomerPortalSession(params = {}) {
         throw new Error('customerId is required to create a billing portal session');
     }
     const stripe = getStripeClient();
-    if (stripe && stripe.billingPortal && stripe.billingPortal.sessions) {
-        const portal = await stripe.billingPortal.sessions.create({
-            customer: params.customerId,
-            return_url: params.returnUrl
-        });
-        return { url: portal.url };
+    if (!stripe || !stripe.billingPortal || !stripe.billingPortal.sessions) {
+        // Audit-2d: fail closed instead of returning a fake placeholder customer URL
+        throw new Error('Stripe billing portal is not configured on this E2EBot instance (STRIPE_SECRET_KEY is not set). Contact support@e2e-agent.com for subscription changes.');
     }
-    return {
-        url: `${params.returnUrl || '/'}?portal_customer=${encodeURIComponent(params.customerId)}&cancel_ready=true`
-    };
+    const portal = await stripe.billingPortal.sessions.create({
+        customer: params.customerId,
+        return_url: params.returnUrl
+    });
+    return { url: portal.url };
 }
 
 /**

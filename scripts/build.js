@@ -60,7 +60,7 @@ const privacyHtml = `<!DOCTYPE html>
   <h2>3. Zero AI Model Training</h2>
   <p>Private staging URLs, deploy previews, DOM structures, and screenshots are <strong>never</strong> used to train, fine-tune, or evaluate any AI/ML models.</p>
   <h2>4. GDPR &amp; CCPA/CPRA Rights</h2>
-  <p>Contact <a href="mailto:privacy@enterprisepicard.com">privacy@enterprisepicard.com</a> to exercise access, rectification, or immediate cryptographic erasure rights.</p>
+  <p>Contact <a href="mailto:support@e2e-agent.com">support@e2e-agent.com</a> to exercise access, rectification, or immediate cryptographic erasure rights.</p>
   <p style="margin-top:2rem;"><a href="/">← Return to E2EBot Cloud Portal</a></p>
 </body>
 </html>`;
@@ -107,6 +107,7 @@ fs.writeFileSync(path.join(distDir, 'terms', 'index.html'), termsHtml, 'utf8');
 // 4. Netlify _redirects
 const redirectsContent = `# Netlify Redirects for e2ebot
 /api/*  /.netlify/functions/api/api/:splat  200
+/mcp    /.netlify/functions/api/api/mcp     200
 /health /.netlify/functions/api/health      200
 /privacy /privacy/index.html 200
 /terms /terms/index.html 200

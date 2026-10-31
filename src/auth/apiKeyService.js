@@ -98,13 +98,14 @@ class ApiKeyService {
         this.requestTimestamps = new Map(); // keyId -> number[] for 60s sliding window
         this.masterAdminKeyOverride = null;
 
-        // SEC-03: Only seed default development lab key in non-production environments when not explicitly disabled
-        if (process.env.NODE_ENV !== 'production' && process.env.SEED_DEFAULT_DEV_KEY !== 'false') {
+        // SEC-03 (Audit 2026-10): Never seed hardcoded dev keys. Opt-in local seeding only
+        // when SEED_DEFAULT_DEV_KEY === 'true' AND an explicit E2EBOT_DEV_KEY secret is provided.
+        if (process.env.SEED_DEFAULT_DEV_KEY === 'true' && process.env.E2EBOT_DEV_KEY) {
             this.createKey({
                 tenantId: 'tenant:software_lab',
                 name: 'Default Lab Dev Runner Key',
                 tier: SubscriptionTier.PRO,
-                secretOverride: process.env.E2EBOT_DEV_KEY || 'e2e_live_dev_lab_key_1234567890abcdef'
+                secretOverride: process.env.E2EBOT_DEV_KEY
             });
         }
 
@@ -127,9 +128,23 @@ class ApiKeyService {
     }
 
     /**
+     * Check whether a master admin credential is configured (env vars or programmatic override).
+     * Fails closed: no hardcoded dev fallback exists.
+     */
+    isMasterAdminConfigured() {
+        return Boolean(
+            process.env.E2EBOT_MASTER_ADMIN_KEY ||
+            process.env.E2EBOT_ADMIN_KEY ||
+            process.env.MASTER_ADMIN_KEY ||
+            process.env.ADMIN_KEY ||
+            this.masterAdminKeyOverride
+        );
+    }
+
+    /**
      * Check whether a given secret matches the master administrative credentials.
-     * Checks environment variables (E2EBOT_MASTER_ADMIN_KEY, E2EBOT_ADMIN_KEY, MASTER_ADMIN_KEY, ADMIN_KEY),
-     * any programmatic override, or in non-production a dev fallback key.
+     * Checks environment variables (E2EBOT_MASTER_ADMIN_KEY, E2EBOT_ADMIN_KEY, MASTER_ADMIN_KEY, ADMIN_KEY)
+     * or any programmatic override. Fails closed — no dev fallback secret is accepted.
      * Uses constant-time buffer comparison to prevent timing attacks.
      */
     isMasterAdmin(rawSecret) {
@@ -140,8 +155,7 @@ class ApiKeyService {
                           process.env.E2EBOT_ADMIN_KEY ||
                           process.env.MASTER_ADMIN_KEY ||
                           process.env.ADMIN_KEY ||
-                          this.masterAdminKeyOverride ||
-                          (process.env.NODE_ENV !== 'production' ? 'e2e_master_admin_dev_secret_key' : null);
+                          this.masterAdminKeyOverride;
 
         if (envMaster) {
             const tokenHash = sha256(token);

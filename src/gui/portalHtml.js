@@ -20,14 +20,14 @@ function renderPortalHtml() {
   <meta property="og:site_name" content="E2EBot Cloud" />
   <meta property="og:title" content="E2EBot — Autonomous E2E Smoke-Test &amp; Telemetry Platform" />
   <meta property="og:description" content="Execute deterministic browser and API smoke tests, provision scoped API keys, and monitor real-time QA telemetry." />
-  <meta property="og:url" content="https://e2ebot.dev/" />
-  <meta property="og:image" content="https://e2ebot.dev/assets/og-e2ebot-portal.png" />
+  <meta property="og:url" content="https://e2e-agent.com/" />
+  <meta property="og:image" content="https://e2e-agent.com/assets/og-e2ebot-portal.png" />
 
   <!-- Twitter / X Card (SAAS-5) -->
   <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:title" content="E2EBot — Autonomous E2E Smoke-Test &amp; Telemetry Platform" />
   <meta name="twitter:description" content="Zero-flake E2E smoke testing, instant API key provisioning, and live execution telemetry for engineering teams." />
-  <meta name="twitter:image" content="https://e2ebot.dev/assets/og-e2ebot-portal.png" />
+  <meta name="twitter:image" content="https://e2e-agent.com/assets/og-e2ebot-portal.png" />
 
   <!-- JSON-LD SoftwareApplication Structured Data (SAAS-5 AEO/SEO) -->
   <script type="application/ld+json">
@@ -486,7 +486,7 @@ function renderPortalHtml() {
         <div class="arl-box">
           <div>
             <strong>CALIFORNIA AUTOMATIC RENEWAL LAW (ARL) DISCLOSURE (CAL. BUS. &amp; PROF. CODE § 17602):</strong>
-            Your paid <strong>E2EBot (Pro $49/mo, Agency $199/mo, or Enterprise $899/mo)</strong> subscription will automatically renew at the end of each monthly billing cycle at the then-current tier rate (plus applicable taxes) unless cancelled prior to the renewal date. You may cancel your subscription at any time with one click via <strong>Developer Portal → Pricing &amp; Billing → Cancel Subscription (Self-Serve Billing Portal)</strong> or by emailing <a href="mailto:billing@e2ebot.dev" style="color:#38bdf8;">billing@e2ebot.dev</a> (at least 24 hours before renewal to avoid the next period's charge).
+            Your paid <strong>E2EBot (Pro $49/mo, Agency $199/mo, or Enterprise $899/mo)</strong> subscription will automatically renew at the end of each monthly billing cycle at the then-current tier rate (plus applicable taxes) unless cancelled prior to the renewal date. You may cancel your subscription at any time with one click via <strong>Developer Portal → Pricing &amp; Billing → Cancel Subscription (Self-Serve Billing Portal)</strong> or by emailing <a href="mailto:support@e2e-agent.com" style="color:#38bdf8;">support@e2e-agent.com</a> (at least 24 hours before renewal to avoid the next period's charge).
           </div>
           <label for="arl-affirmative-consent" class="arl-consent-label">
             <input type="checkbox" id="arl-affirmative-consent" name="arlConsent" onchange="toggleArlCheckoutButtons()" />
@@ -499,6 +499,7 @@ function renderPortalHtml() {
         <div class="form-row" style="margin-bottom:1rem;">
           <input type="email" id="checkoutEmail" placeholder="Subscriber billing email (e.g., qa-lead@company.com)" />
           <input type="text" id="checkoutTenant" placeholder="Tenant Workspace ID (e.g., tenant:acme_corp)" />
+          <input type="text" id="billingCustomerId" placeholder="Stripe Customer ID (cus_... — from your receipt email)" />
           <button class="btn btn-outline" onclick="openCustomerPortal()">1-Click Cancel / Manage Billing Portal</button>
         </div>
 
@@ -585,6 +586,7 @@ function renderPortalHtml() {
     }
 
     document.addEventListener('DOMContentLoaded', () => {
+      handleBillingReturn();
       const saved = getSavedApiKey();
       const input = document.getElementById('inspectorApiKey');
       if (saved && input) {
@@ -730,25 +732,78 @@ function renderPortalHtml() {
       const tenantId = document.getElementById('checkoutTenant').value.trim() || undefined;
       const out = document.getElementById('billingOutput');
       out.style.display = 'block';
-      const res = await fetch('/api/billing/create-checkout-session', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tier, email, tenantId, arlConsent })
-      });
-      const data = await res.json();
-      out.textContent = JSON.stringify(data, null, 2);
+      out.textContent = '// Initiating secure Stripe Checkout for ' + tier + '...';
+      try {
+        const res = await fetch('/api/billing/create-checkout-session', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tier, email, tenantId, arlConsent })
+        });
+        const data = await res.json();
+        if (res.ok && data.url) {
+          // Audit-4: redirect to hosted Stripe Checkout instead of dumping JSON into the console
+          window.location.href = data.url;
+          return;
+        }
+        out.textContent = JSON.stringify(data, null, 2);
+      } catch (err) {
+        out.textContent = '// Checkout Error: ' + err.message;
+      }
+    }
+
+    // Audit-4: Post-checkout return handler — reads ?billing_status= & ?session_id= from Stripe success/cancel redirects
+    function handleBillingReturn() {
+      const params = new URLSearchParams(window.location.search);
+      const status = params.get('billing_status');
+      const sessionId = params.get('session_id');
+      const tier = params.get('tier');
+      if (!status && !sessionId) return;
+
+      const out = document.getElementById('billingOutput');
+      if (out) {
+        out.style.display = 'block';
+        if (status === 'success' || sessionId) {
+          out.textContent =
+            '// PAYMENT RECEIVED — provisioning is automatic via Stripe webhook.\\n' +
+            (tier ? '// Tier: ' + tier + '\\n' : '') +
+            (sessionId ? '// Checkout session: ' + sessionId + '\\n' : '') +
+            '// Your e2e_live_ API key is issued within moments of webhook confirmation. ' +
+            'If you do not receive it, email support@e2e-agent.com with your tenant ID and checkout session ID.\\n' +
+            '// (No checkout-status API is exposed; webhook provisioning is authoritative.)';
+        } else if (status === 'cancelled') {
+          out.textContent = '// Checkout cancelled — no charge was made. You can retry any time from the Pricing tab.';
+        }
+      }
+      // Switch to the Pricing & Billing tab so the banner is visible
+      switchTab('pricingTab', document.querySelector('.nav-tab:last-child'));
+      // Clean the URL so a refresh does not replay the banner
+      window.history.replaceState({}, document.title, window.location.pathname);
     }
 
     async function openCustomerPortal() {
       const out = document.getElementById('billingOutput');
       out.style.display = 'block';
-      const res = await fetch('/api/billing/create-portal-session', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ customerId: 'cus_self_serve_portal' })
-      });
-      const data = await res.json();
-      out.textContent = JSON.stringify(data, null, 2);
+      const customerId = (document.getElementById('billingCustomerId')?.value || '').trim();
+      if (!customerId || !customerId.startsWith('cus_')) {
+        // Audit-2d: never send a fake placeholder customer id — require the real Stripe Customer ID
+        out.textContent = '// Billing Portal requires your Stripe Customer ID (cus_...), found in your subscription receipt email. Enter it in the "Stripe Customer ID" field above. Need help? Email support@e2e-agent.com.';
+        return;
+      }
+      try {
+        const res = await fetch('/api/billing/create-portal-session', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ customerId })
+        });
+        const data = await res.json();
+        if (res.ok && data.url) {
+          window.location.href = data.url;
+          return;
+        }
+        out.textContent = JSON.stringify(data, null, 2);
+      } catch (err) {
+        out.textContent = '// Billing Portal Error: ' + err.message;
+      }
     }
   </script>
 </body>
